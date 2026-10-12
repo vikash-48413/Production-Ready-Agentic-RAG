@@ -58,6 +58,7 @@ Thumbs.db
 # Project data
 DATA/
 data/
+processed_data/
 uploads/
 chroma_db/
 faiss_index/
