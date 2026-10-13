@@ -5,10 +5,9 @@ from langchain_openai import ChatOpenAI
 from app.config import settings
 
 
-# Production gateway config:
-#   - Fallback: primary @rag/llama-3.3-70b-versatile → @brag/llama-3.1-8b-instant on failure
-#   - Cache: semantic mode (requires Portkey Enterprise — silently falls back to simple on free/starter)
-#   - Retry: 2 attempts on rate limit / server error before triggering the fallback target
+# Inline Portkey configs are rejected when the workspace has block_inline_config
+# enabled. Use a saved config slug when one is supplied; otherwise route through
+# the configured Portkey provider virtual key.
 GATEWAY_CONFIG = {
     "strategy": {"mode": "fallback"},
     "cache": {"mode": "simple"},
@@ -22,9 +21,11 @@ GATEWAY_CONFIG = {
     ]
 }
 
+PRIMARY_MODEL = f"@{settings.GROQ_SLUG}/{settings.GROQ_MODEL}"
+
 portkey_client = Portkey(
     api_key=settings.PORTKEY_API_KEY,
-    config=GATEWAY_CONFIG
+    config=settings.PORTKEY_CONFIG_SLUG or None,
 )
 
 
@@ -39,21 +40,24 @@ def get_langchain_llm(feature: str = "rag") -> ChatOpenAI:
       auth + config). The @rag/model-name format is Portkey-specific — Groq's own client
       does not understand it. You are still using Groq models; Portkey is just in the middle.
     """
+    headers = createHeaders(
+        api_key=settings.PORTKEY_API_KEY,
+        config=settings.PORTKEY_CONFIG_SLUG,
+        metadata={
+            "feature": feature,
+            "_user": "rag-system",
+            "environment": "production"
+        }
+    ) if settings.PORTKEY_CONFIG_SLUG else None
+
     return ChatOpenAI(
         api_key=settings.PORTKEY_API_KEY,
         base_url=PORTKEY_GATEWAY_URL,
-        model=f"@{settings.GROQ_SLUG}/llama-3.3-70b-versatile",
+        model=PRIMARY_MODEL,
         temperature=0,
-        default_headers=createHeaders(
-            api_key=settings.PORTKEY_API_KEY,
-            config=GATEWAY_CONFIG,
-            metadata={
-                "feature": feature,
-                "_user": "rag-system",
-                "environment": "production"
-            }
-        )
+        default_headers=headers,
     )
+
 
 def extract_cache_status(response) -> str:
     """
